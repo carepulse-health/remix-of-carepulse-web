@@ -28,3 +28,7 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## CarePulse data boundary
+
+- Keep prototype workflows on sample data until the existing clinic database's RLS and membership access are verified; do not create or replace database tables because CarePulse already has an external schema.
