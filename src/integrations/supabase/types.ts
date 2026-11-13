@@ -133,6 +133,50 @@ export type Database = {
           },
         ]
       }
+      automation_runs: {
+        Row: {
+          clinic_id: string
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          related_reference: string
+          status: string
+          trigger_key: string
+          workflow_name: string
+        }
+        Insert: {
+          clinic_id: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          related_reference: string
+          status?: string
+          trigger_key: string
+          workflow_name: string
+        }
+        Update: {
+          clinic_id?: string
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          related_reference?: string
+          status?: string
+          trigger_key?: string
+          workflow_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automation_runs_clinic_id_fkey"
+            columns: ["clinic_id"]
+            isOneToOne: false
+            referencedRelation: "clinics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clinic_members: {
         Row: {
           clinic_id: string
@@ -584,7 +628,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      carepulse_send_due_appointment_reminders: { Args: never; Returns: number }
     }
     Enums: {
       [_ in never]: never
