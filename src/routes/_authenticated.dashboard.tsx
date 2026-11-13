@@ -31,7 +31,7 @@ import {
 type Section = "Overview" | "Patients" | "Appointments" | "Triage Queue" | "Doctors" | "Consultations" | "Notifications" | "Reports" | "Clinic Settings";
 type AppointmentFilter = "All appointments" | "Today" | "Pending" | "Confirmed" | "Completed";
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
       { title: "CarePulse | Community clinic workspace" },
