@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, HeartPulse, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -121,7 +121,6 @@ function SignInPage() {
 
         <footer className="flex items-center justify-between border-t border-border pt-5 text-xs text-muted-foreground">
           <span>CarePulse · Community clinic workspace</span>
-          <Link to="/" className="sr-only">Staff sign in</Link>
         </footer>
       </div>
     </main>
