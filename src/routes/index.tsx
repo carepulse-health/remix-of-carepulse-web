@@ -1,0 +1,129 @@
+import { useState, type FormEvent } from "react";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ArrowRight, HeartPulse, ShieldCheck } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/integrations/supabase/client";
+
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "Staff sign in | CarePulse" },
+      { name: "description", content: "Secure sign-in for CarePulse community clinic staff." },
+      { property: "og:title", content: "Staff sign in | CarePulse" },
+      { property: "og:description", content: "Secure sign-in for CarePulse community clinic staff." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
+  component: SignInPage,
+});
+
+function SignInPage() {
+  const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    setSubmitting(false);
+    if (signInError) {
+      setError("We couldn't sign you in with those details. Check them and try again.");
+      return;
+    }
+
+    await navigate({ to: "/dashboard" });
+  }
+
+  return (
+    <main className="min-h-screen bg-background px-5 py-10 text-foreground sm:px-8 lg:px-12">
+      <div className="mx-auto flex min-h-[calc(100vh-5rem)] max-w-6xl flex-col">
+        <header className="flex items-center gap-3" aria-label="CarePulse">
+          <span className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <HeartPulse className="size-5" aria-hidden="true" />
+          </span>
+          <span className="font-display text-xl font-bold tracking-tight">CarePulse</span>
+        </header>
+
+        <div className="grid flex-1 items-center gap-12 py-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20">
+          <section className="max-w-xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-primary">Community care, connected</p>
+            <h1 className="mt-5 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+              Good to see you.
+              <span className="mt-2 block text-primary">Let’s care together.</span>
+            </h1>
+            <p className="mt-6 max-w-lg text-lg leading-8 text-muted-foreground">
+              Sign in to your clinic workspace and pick up where your team left off.
+            </p>
+            <div className="mt-10 inline-flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
+              <ShieldCheck className="size-5 text-care-teal" aria-hidden="true" />
+              Sign-in is available to existing clinic staff accounts.
+            </div>
+          </section>
+
+          <section className="mx-auto w-full max-w-md rounded-2xl border border-border bg-card p-7 shadow-sm sm:p-9">
+            <div>
+              <h2 className="font-display text-2xl font-bold tracking-tight">Staff sign in</h2>
+              <p className="mt-2 text-sm text-muted-foreground">Use the email and password for your clinic account.</p>
+            </div>
+
+            <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+              <div className="space-y-2">
+                <label htmlFor="email" className="text-sm font-medium">Email address</label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="username"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@yourclinic.com"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="password" className="text-sm font-medium">Password</label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="Enter your password"
+                />
+              </div>
+
+              {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+
+              <Button type="submit" className="h-11 w-full" disabled={submitting}>
+                {submitting ? "Signing in…" : "Sign in"}
+                {!submitting && <ArrowRight className="size-4" aria-hidden="true" />}
+              </Button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-muted-foreground">
+              Need access? Contact your clinic administrator.
+            </p>
+          </section>
+        </div>
+
+        <footer className="flex items-center justify-between border-t border-border pt-5 text-xs text-muted-foreground">
+          <span>CarePulse · Community clinic workspace</span>
+          <Link to="/" className="sr-only">Staff sign in</Link>
+        </footer>
+      </div>
+    </main>
+  );
+}
