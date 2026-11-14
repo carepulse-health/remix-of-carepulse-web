@@ -18,15 +18,15 @@
 import { createFileRoute, Outlet, redirect } from '@tanstack/react-router'
 import { supabase } from '@/integrations/supabase/client'
 
-// Lovable's Supabase auth scaffolds use `/auth`; change this if the app uses another sign-in route.
-const SIGN_IN_ROUTE = '/auth'
+// The public staff sign-in page is the app's root route.
+const SIGN_IN_ROUTE = '/'
 
 export const Route = createFileRoute('/_authenticated')({
   ssr: false,
   beforeLoad: async () => {
     const { data, error } = await supabase.auth.getUser()
     if (error || !data.user) {
-      throw redirect({ to: SIGN_IN_ROUTE })
+      throw redirect({ href: SIGN_IN_ROUTE })
     }
     return { user: data.user }
   },

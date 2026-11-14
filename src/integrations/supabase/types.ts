@@ -629,6 +629,10 @@ export type Database = {
     }
     Functions: {
       carepulse_send_due_appointment_reminders: { Args: never; Returns: number }
+      verify_appointment_pass: {
+        Args: { _reference_code: string; _token: string }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

@@ -32,3 +32,7 @@ use the editor.
 ## CarePulse data boundary
 
 - Keep prototype workflows on sample data until the existing clinic database's RLS and membership access are verified; do not create or replace database tables because CarePulse already has an external schema.
+
+## Route and access boundary
+
+- Keep staff sign-in public at `/` and the sample clinic workspace under the authenticated `/dashboard` route so the workspace is not exposed to signed-out visitors.
