@@ -1,0 +1,301 @@
+import { queryOptions } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+export type ClinicMembership = { clinic_id: string; role: string };
+
+export type ClinicRecord = {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  opening_hours: Record<string, unknown> | null;
+};
+
+export type PatientRecord = {
+  id: string;
+  clinic_id: string;
+  full_name: string;
+  date_of_birth: string | null;
+  gender: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+export type AppointmentRecord = {
+  id: string;
+  clinic_id: string;
+  patient_id: string;
+  doctor_id: string | null;
+  appointment_date: string;
+  appointment_time: string;
+  reason: string | null;
+  status: string | null;
+};
+
+export type DoctorRecord = {
+  id: string;
+  clinic_id: string;
+  full_name: string;
+  specialization: string | null;
+  availability_status: string | null;
+};
+
+export type ScheduleRecord = {
+  id: string;
+  clinic_id: string;
+  doctor_id: string;
+  day_of_week: string;
+  start_time: string;
+  end_time: string;
+  is_available: boolean | null;
+};
+
+export type TriageRecord = {
+  id: string;
+  clinic_id: string;
+  patient_id: string;
+  appointment_id: string | null;
+  symptoms: string | null;
+  ai_summary: string | null;
+  priority_level: string;
+  recommended_action: string | null;
+  reviewed_by: string | null;
+  review_status: string | null;
+  created_at: string | null;
+};
+
+export type ConsultationRecord = {
+  id: string;
+  clinic_id: string;
+  patient_id: string;
+  doctor_id: string | null;
+  appointment_id: string | null;
+  consultation_notes: string | null;
+  follow_up_date: string | null;
+  created_at: string | null;
+};
+
+export type NotificationRecord = {
+  id: string;
+  clinic_id: string | null;
+  user_id: string | null;
+  patient_id: string | null;
+  title: string;
+  message: string;
+  notification_type: string | null;
+  is_read: boolean | null;
+  created_at: string | null;
+};
+
+export type ClinicSettingsRecord = {
+  clinic_id: string;
+  settings: Record<string, unknown> | null;
+  updated_at: string | null;
+};
+
+export type ClinicWorkspace = {
+  userId: string;
+  email: string;
+  memberships: ClinicMembership[];
+  clinics: ClinicRecord[];
+  patients: PatientRecord[];
+  appointments: AppointmentRecord[];
+  doctors: DoctorRecord[];
+  schedules: ScheduleRecord[];
+  triage: TriageRecord[];
+  consultations: ConsultationRecord[];
+  notifications: NotificationRecord[];
+  settings: ClinicSettingsRecord[];
+};
+
+export function getMembershipClinicIds(memberships: ClinicMembership[]) {
+  return [...new Set(memberships.map((membership) => membership.clinic_id))];
+}
+
+function failRead() {
+  return new Error("Clinic records could not be loaded. Please try again or ask your clinic administrator to review your access.");
+}
+
+function readRows<T>(result: { data: T[] | null; error: unknown }): T[] {
+  if (result.error) throw failRead();
+  return result.data ?? [];
+}
+
+export async function readClinicWorkspace(userId: string): Promise<ClinicWorkspace> {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || authData.user?.id !== userId) {
+    throw new Error("Your sign-in has expired. Please sign in again.");
+  }
+
+  const membershipResult = await supabase
+    .from("clinic_members")
+    .select("clinic_id, role")
+    .eq("user_id", userId);
+  const memberships = readRows(membershipResult);
+  const memberClinicIds = getMembershipClinicIds(memberships);
+
+  if (memberClinicIds.length === 0) {
+    return {
+      userId,
+      email: authData.user.email ?? "",
+      memberships,
+      clinics: [],
+      patients: [],
+      appointments: [],
+      doctors: [],
+      schedules: [],
+      triage: [],
+      consultations: [],
+      notifications: [],
+      settings: [],
+    };
+  }
+
+  const clinicResult = await supabase
+    .from("clinics")
+    .select("id, name, address, phone, email, opening_hours")
+    .in("id", memberClinicIds);
+  const clinics = readRows(clinicResult);
+  const authorizedClinicIds = memberClinicIds.filter((id) => clinics.some((clinic) => clinic.id === id));
+
+  if (authorizedClinicIds.length === 0) {
+    return {
+      userId,
+      email: authData.user.email ?? "",
+      memberships,
+      clinics: [],
+      patients: [],
+      appointments: [],
+      doctors: [],
+      schedules: [],
+      triage: [],
+      consultations: [],
+      notifications: [],
+      settings: [],
+    };
+  }
+
+  const clinicFilter = (table: "patients" | "appointments" | "doctors" | "doctor_schedules" | "triage_records" | "consultation_logs" | "clinic_settings") =>
+    supabase.from(table).select("*").in("clinic_id", authorizedClinicIds);
+
+  const [patientsResult, appointmentsResult, doctorsResult, schedulesResult, triageResult, consultationsResult, notificationsResult, settingsResult] = await Promise.all([
+    clinicFilter("patients"),
+    clinicFilter("appointments"),
+    clinicFilter("doctors"),
+    clinicFilter("doctor_schedules"),
+    clinicFilter("triage_records"),
+    clinicFilter("consultation_logs"),
+    supabase
+      .from("notifications")
+      .select("id, clinic_id, user_id, patient_id, title, message, notification_type, is_read, created_at")
+      .or(`user_id.eq.${userId},clinic_id.in.(${authorizedClinicIds.join(",")})`),
+    clinicFilter("clinic_settings"),
+  ]);
+
+  return {
+    userId,
+    email: authData.user.email ?? "",
+    memberships,
+    clinics,
+    patients: readRows(patientsResult),
+    appointments: readRows(appointmentsResult),
+    doctors: readRows(doctorsResult),
+    schedules: readRows(schedulesResult),
+    triage: readRows(triageResult),
+    consultations: readRows(consultationsResult),
+    notifications: readRows(notificationsResult),
+    settings: readRows(settingsResult),
+  };
+}
+
+export function clinicWorkspaceQueryOptions(userId: string) {
+  return queryOptions({
+    queryKey: ["carepulse", "staff-workspace", userId],
+    queryFn: () => readClinicWorkspace(userId),
+  });
+}
+
+export async function createClinicAppointment(input: {
+  clinicId: string;
+  patientId: string;
+  doctorId: string;
+  date: string;
+  time: string;
+  reason: string;
+}) {
+  const { error } = await supabase.from("appointments").insert({
+    clinic_id: input.clinicId,
+    patient_id: input.patientId,
+    doctor_id: input.doctorId,
+    appointment_date: input.date,
+    appointment_time: input.time,
+    reason: input.reason,
+    status: "pending",
+  });
+  if (error) throw new Error("This appointment could not be saved. Check clinic access and try again.");
+}
+
+export async function changeClinicAppointmentStatus(input: {
+  clinicId: string;
+  appointmentId: string;
+  status: string;
+}) {
+  const { data, error } = await supabase
+    .from("appointments")
+    .update({ status: input.status, updated_at: new Date().toISOString() })
+    .eq("id", input.appointmentId)
+    .eq("clinic_id", input.clinicId)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) throw new Error("This appointment could not be updated. Check clinic access and try again.");
+}
+
+export async function reviewClinicTriage(input: {
+  clinicId: string;
+  triageId: string;
+  userId: string;
+}) {
+  const { data, error } = await supabase
+    .from("triage_records")
+    .update({ review_status: "reviewed", reviewed_by: input.userId })
+    .eq("id", input.triageId)
+    .eq("clinic_id", input.clinicId)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) throw new Error("This screening could not be marked reviewed. Check clinic access and try again.");
+}
+
+export async function addClinicConsultation(input: {
+  clinicId: string;
+  patientId: string;
+  doctorId: string | null;
+  appointmentId: string | null;
+  notes: string;
+  followUpDate: string | null;
+}) {
+  const { error } = await supabase.from("consultation_logs").insert({
+    clinic_id: input.clinicId,
+    patient_id: input.patientId,
+    doctor_id: input.doctorId,
+    appointment_id: input.appointmentId,
+    consultation_notes: input.notes,
+    follow_up_date: input.followUpDate,
+  });
+  if (error) throw new Error("This consultation could not be saved. Check clinic access and try again.");
+}
+
+export async function markClinicNotificationRead(input: {
+  clinicId: string;
+  notificationId: string;
+  userId: string;
+}) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .update({ is_read: true })
+    .eq("id", input.notificationId)
+    .or(`user_id.eq.${input.userId},clinic_id.eq.${input.clinicId}`)
+    .select("id")
+    .maybeSingle();
+  if (error || !data) throw new Error("This alert could not be marked read. Check clinic access and try again.");
+}
