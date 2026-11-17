@@ -36,3 +36,7 @@ use the editor.
 ## Route and access boundary
 
 - Keep staff sign-in public at `/` and the sample clinic workspace under the authenticated `/dashboard` route so the workspace is not exposed to signed-out visitors.
+
+## Staff data access
+
+- Keep staff reads and permitted writes in the browser Supabase client with RLS, resolve clinic membership before loading records, and filter every clinic dataset by verified membership IDs; never use the service-role client for ordinary staff data.
