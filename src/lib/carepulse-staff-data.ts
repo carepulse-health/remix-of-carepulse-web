@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 
 export type ClinicMembership = { clinic_id: string; role: string };
 
@@ -9,7 +10,7 @@ export type ClinicRecord = {
   address: string | null;
   phone: string | null;
   email: string | null;
-  opening_hours: Record<string, unknown> | null;
+  opening_hours: Json;
 };
 
 export type PatientRecord = {
@@ -90,7 +91,7 @@ export type NotificationRecord = {
 
 export type ClinicSettingsRecord = {
   clinic_id: string;
-  settings: Record<string, unknown> | null;
+  settings: Json;
   updated_at: string | null;
 };
 
@@ -176,21 +177,18 @@ export async function readClinicWorkspace(userId: string): Promise<ClinicWorkspa
     };
   }
 
-  const clinicFilter = (table: "patients" | "appointments" | "doctors" | "doctor_schedules" | "triage_records" | "consultation_logs" | "clinic_settings") =>
-    supabase.from(table).select("*").in("clinic_id", authorizedClinicIds);
-
   const [patientsResult, appointmentsResult, doctorsResult, schedulesResult, triageResult, consultationsResult, notificationsResult, settingsResult] = await Promise.all([
-    clinicFilter("patients"),
-    clinicFilter("appointments"),
-    clinicFilter("doctors"),
-    clinicFilter("doctor_schedules"),
-    clinicFilter("triage_records"),
-    clinicFilter("consultation_logs"),
+    supabase.from("patients").select("id, clinic_id, full_name, date_of_birth, gender, phone, email").in("clinic_id", authorizedClinicIds),
+    supabase.from("appointments").select("id, clinic_id, patient_id, doctor_id, appointment_date, appointment_time, reason, status").in("clinic_id", authorizedClinicIds),
+    supabase.from("doctors").select("id, clinic_id, full_name, specialization, availability_status").in("clinic_id", authorizedClinicIds),
+    supabase.from("doctor_schedules").select("id, clinic_id, doctor_id, day_of_week, start_time, end_time, is_available").in("clinic_id", authorizedClinicIds),
+    supabase.from("triage_records").select("id, clinic_id, patient_id, appointment_id, symptoms, ai_summary, priority_level, recommended_action, reviewed_by, review_status, created_at").in("clinic_id", authorizedClinicIds),
+    supabase.from("consultation_logs").select("id, clinic_id, patient_id, doctor_id, appointment_id, consultation_notes, follow_up_date, created_at").in("clinic_id", authorizedClinicIds),
     supabase
       .from("notifications")
       .select("id, clinic_id, user_id, patient_id, title, message, notification_type, is_read, created_at")
       .or(`user_id.eq.${userId},clinic_id.in.(${authorizedClinicIds.join(",")})`),
-    clinicFilter("clinic_settings"),
+    supabase.from("clinic_settings").select("clinic_id, settings, updated_at").in("clinic_id", authorizedClinicIds),
   ]);
 
   return {
