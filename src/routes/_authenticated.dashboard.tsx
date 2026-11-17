@@ -270,7 +270,7 @@ function CarePulseDashboard() {
           </div>
           <div className="flex items-center gap-3 sm:gap-5">
             <div className="hidden h-9 w-64 items-center gap-2 rounded-md border border-input bg-background px-3 md:flex"><Search className="size-4 text-muted-foreground" /><Input aria-label="Search clinic records" value={query} onChange={(event) => setQuery(event.target.value)} className="h-full border-0 px-0 shadow-none focus-visible:ring-0" placeholder="Search this clinic…" /></div>
-            <Button variant="ghost" size="icon" className="relative" aria-label="Open notifications" onClick={() => setSection("Notifications")}><Bell className="size-[18px] />{unreadCount > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive ring-2 ring-card" />}</Button>
+            <Button variant="ghost" size="icon" className="relative" aria-label="Open notifications" onClick={() => setSection("Notifications")}><Bell className="size-[18px]" />{unreadCount > 0 && <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-destructive ring-2 ring-card" />}</Button>
             <span className="hidden max-w-48 truncate border-l border-border pl-4 text-xs text-muted-foreground sm:block">{workspace.email || user.email}</span>
           </div>
         </header>
