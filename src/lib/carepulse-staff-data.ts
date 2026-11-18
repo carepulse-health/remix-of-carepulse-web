@@ -21,6 +21,9 @@ export type PatientRecord = {
   gender: string | null;
   phone: string | null;
   email: string | null;
+  address: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
 };
 
 export type AppointmentRecord = {
@@ -178,7 +181,7 @@ export async function readClinicWorkspace(userId: string): Promise<ClinicWorkspa
   }
 
   const [patientsResult, appointmentsResult, doctorsResult, schedulesResult, triageResult, consultationsResult, notificationsResult, settingsResult] = await Promise.all([
-    supabase.from("patients").select("id, clinic_id, full_name, date_of_birth, gender, phone, email").in("clinic_id", authorizedClinicIds),
+    supabase.from("patients").select("id, clinic_id, full_name, date_of_birth, gender, phone, email, address, emergency_contact_name, emergency_contact_phone").in("clinic_id", authorizedClinicIds),
     supabase.from("appointments").select("id, clinic_id, patient_id, doctor_id, appointment_date, appointment_time, reason, status").in("clinic_id", authorizedClinicIds),
     supabase.from("doctors").select("id, clinic_id, full_name, specialization, availability_status").in("clinic_id", authorizedClinicIds),
     supabase.from("doctor_schedules").select("id, clinic_id, doctor_id, day_of_week, start_time, end_time, is_available").in("clinic_id", authorizedClinicIds),
@@ -296,4 +299,103 @@ export async function markClinicNotificationRead(input: {
     .select("id")
     .maybeSingle();
   if (error || !data) throw new Error("This alert could not be marked read. Check clinic access and try again.");
+}
+
+const denied = (what: string) => new Error(`${what} could not be saved. Your role may not allow this change, or the details are invalid.`);
+
+export type DoctorInput = { fullName: string; specialization: string | null; availabilityStatus: string | null };
+
+export async function createClinicDoctor(clinicId: string, input: DoctorInput) {
+  const { error } = await supabase.from("doctors").insert({
+    clinic_id: clinicId,
+    full_name: input.fullName,
+    specialization: input.specialization,
+    availability_status: input.availabilityStatus,
+  });
+  if (error) throw denied("This doctor");
+}
+
+export async function updateClinicDoctor(clinicId: string, doctorId: string, input: DoctorInput) {
+  const { data, error } = await supabase
+    .from("doctors")
+    .update({ full_name: input.fullName, specialization: input.specialization, availability_status: input.availabilityStatus })
+    .eq("id", doctorId)
+    .eq("clinic_id", clinicId)
+    .select("id");
+  if (error || !data?.length) throw denied("This doctor");
+}
+
+export type ScheduleInput = { dayOfWeek: string; startTime: string; endTime: string; isAvailable: boolean };
+
+export async function createDoctorSchedule(clinicId: string, doctorId: string, input: ScheduleInput) {
+  const { error } = await supabase.from("doctor_schedules").insert({
+    clinic_id: clinicId,
+    doctor_id: doctorId,
+    day_of_week: input.dayOfWeek,
+    start_time: input.startTime,
+    end_time: input.endTime,
+    is_available: input.isAvailable,
+  });
+  if (error) throw denied("This schedule");
+}
+
+export async function updateDoctorSchedule(clinicId: string, scheduleId: string, input: ScheduleInput) {
+  const { data, error } = await supabase
+    .from("doctor_schedules")
+    .update({ day_of_week: input.dayOfWeek, start_time: input.startTime, end_time: input.endTime, is_available: input.isAvailable })
+    .eq("id", scheduleId)
+    .eq("clinic_id", clinicId)
+    .select("id");
+  if (error || !data?.length) throw denied("This schedule");
+}
+
+export type ClinicDetailsInput = { name: string; address: string | null; phone: string | null; email: string | null };
+
+export async function updateClinicDetails(clinicId: string, input: ClinicDetailsInput) {
+  const { data, error } = await supabase
+    .from("clinics")
+    .update({ name: input.name, address: input.address, phone: input.phone, email: input.email })
+    .eq("id", clinicId)
+    .select("id");
+  if (error || !data?.length) throw denied("Clinic details");
+}
+
+export type PatientInput = {
+  fullName: string;
+  dateOfBirth: string | null;
+  gender: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  emergencyContactName: string | null;
+  emergencyContactPhone: string | null;
+};
+
+function patientColumns(input: PatientInput) {
+  return {
+    full_name: input.fullName,
+    date_of_birth: input.dateOfBirth,
+    gender: input.gender,
+    phone: input.phone,
+    email: input.email,
+    address: input.address,
+    emergency_contact_name: input.emergencyContactName,
+    emergency_contact_phone: input.emergencyContactPhone,
+  };
+}
+
+// Never sends clinic or linked-login fields on edit; the database blocks staff from changing them.
+export async function registerClinicPatient(clinicId: string, input: PatientInput) {
+  const { error } = await supabase.from("patients").insert({ clinic_id: clinicId, ...patientColumns(input) });
+  if (error) throw denied("This patient");
+}
+
+export async function updateClinicPatient(clinicId: string, patientId: string, input: PatientInput) {
+  const { data, error } = await supabase
+    .from("patients")
+    .update(patientColumns(input))
+    .eq("id", patientId)
+    .eq("clinic_id", clinicId)
+    .select("id");
+  if (error || !data?.length) throw denied("This patient");
 }

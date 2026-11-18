@@ -40,3 +40,7 @@ use the editor.
 ## Staff data access
 
 - Keep staff reads and permitted writes in the browser Supabase client with RLS, resolve clinic membership before loading records, and filter every clinic dataset by verified membership IDs; never use the service-role client for ordinary staff data.
+
+## Role-gated staff actions
+
+- Derive which workspace actions a staff member sees from their clinic membership role via `src/lib/carepulse-permissions.ts`, kept in step with the database access rules; the database remains the enforcer, and patient edits never send clinic or linked-account fields.

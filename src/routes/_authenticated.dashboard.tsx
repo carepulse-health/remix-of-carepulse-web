@@ -16,12 +16,16 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { ClinicDialog, DoctorDialog, PatientDialog, ScheduleDialog } from "@/components/carepulse/staff-forms";
+import { getStaffPermissions, type StaffPermissions } from "@/lib/carepulse-permissions";
 import {
   addClinicConsultation, changeClinicAppointmentStatus, clinicWorkspaceQueryOptions,
   createClinicAppointment, markClinicNotificationRead, readClinicWorkspace,
   reviewClinicTriage, type AppointmentRecord, type ClinicWorkspace,
   type ConsultationRecord, type DoctorRecord, type NotificationRecord,
   type PatientRecord, type TriageRecord,
+  createClinicDoctor, updateClinicDoctor, createDoctorSchedule, updateDoctorSchedule,
+  updateClinicDetails, registerClinicPatient, updateClinicPatient, type ScheduleRecord,
 } from "@/lib/carepulse-staff-data";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -33,6 +37,12 @@ type DemoAppointment = (typeof initialAppointments)[number];
 type DemoPatient = (typeof initialPatients)[number];
 type DemoDoctor = (typeof initialDoctors)[number];
 type DemoTriage = (typeof initialTriage)[number];
+type StaffForm =
+  | { kind: "doctor"; doctor: DoctorRecord | null }
+  | { kind: "schedule"; doctor: DoctorRecord; schedule: ScheduleRecord | null }
+  | { kind: "clinic" }
+  | { kind: "patient"; patient: PatientRecord | null }
+  | null;
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -79,6 +89,8 @@ function CarePulseDashboard() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [staffForm, setStaffForm] = useState<StaffForm>(null);
+  const [formError, setFormError] = useState("");
 
   const demoMode = workspace.memberships.length === 0;
   const clinic = workspace.clinics.find((item) => item.id === selectedClinicId) ?? workspace.clinics[0] ?? null;
@@ -91,6 +103,7 @@ function CarePulseDashboard() {
   const consultations = demoMode ? [] : workspace.consultations.filter((item) => item.clinic_id === clinicId);
   const notifications = demoMode ? [] : workspace.notifications.filter((item) => !item.clinic_id || item.clinic_id === clinicId);
   const settings = demoMode ? null : workspace.settings.find((item) => item.clinic_id === clinicId) ?? null;
+  const permissions = getStaffPermissions(workspace.memberships, clinicId);
   const searchable = query.trim().toLocaleLowerCase();
   const filteredPatients = patients.filter((patient) => !searchable || [patient.full_name, patient.phone ?? "", patient.email ?? ""].some((text) => text.toLocaleLowerCase().includes(searchable)));
   const filteredAppointments = appointments.filter((appointment) => {
@@ -104,7 +117,7 @@ function CarePulseDashboard() {
     Appointments: "Schedule and track clinic visits.",
     Patients: "Review patient records available to your clinic team.",
     "Triage Queue": "Review submitted patient screenings.",
-    Doctors: "View doctors and their current schedules.",
+    Doctors: "Doctor profiles and weekly schedules.",
     Consultations: "Review and record clinical consultations.",
     Notifications: "Important clinic alerts and reminders.",
     Settings: "Clinic information and access status.",
@@ -231,6 +244,28 @@ function CarePulseDashboard() {
     }
   }
 
+  function openStaffForm(form: StaffForm) {
+    setFormError("");
+    setNotice("");
+    setStaffForm(form);
+  }
+
+  async function runStaffSave(save: () => Promise<void>, success: string) {
+    if (!clinicId) return;
+    setBusy(true);
+    setFormError("");
+    try {
+      await save();
+      setStaffForm(null);
+      setNotice(success);
+      await reloadWorkspace();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "The changes could not be saved.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const shownClinicNames = useMemo(() => workspace.clinics.map((item) => ({ id: item.id, name: item.name })), [workspace.clinics]);
 
   return (
@@ -305,12 +340,30 @@ function CarePulseDashboard() {
             onConsultation={() => { setSelectedAppointment(null); setConsultationModal(true); }}
             onMarkRead={markNotificationRead}
             onNewAppointment={() => setAppointmentModal(true)}
+            permissions={permissions}
+            onEditDoctor={(doctor) => openStaffForm({ kind: "doctor", doctor })}
+            onEditSchedule={(doctor, schedule) => openStaffForm({ kind: "schedule", doctor, schedule })}
+            onEditClinic={() => openStaffForm({ kind: "clinic" })}
+            onEditPatient={(patient) => openStaffForm({ kind: "patient", patient })}
           /> : <div className="border border-dashed border-border px-6 py-16 text-center"><ShieldCheck className="mx-auto size-8 text-muted-foreground" /><h2 className="mt-4 text-base font-semibold">No clinic workspace available</h2><p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">Ask your clinic administrator to verify your clinic membership and access.</p></div>}
         </main>
       </div>
 
       <AppointmentDialog open={appointmentModal} onOpenChange={setAppointmentModal} patients={patients} doctors={doctors} busy={busy} onSubmit={saveAppointment} />
       <ConsultationDialog open={consultationModal} onOpenChange={setConsultationModal} patients={patients} doctors={doctors} appointments={appointments} selectedAppointment={selectedAppointment} busy={busy} onSubmit={saveConsultation} />
+      {permissions.canManageDoctors && <DoctorDialog open={staffForm?.kind === "doctor"} onOpenChange={(open) => !open && setStaffForm(null)} busy={busy} error={formError} onError={setFormError}
+        doctor={staffForm?.kind === "doctor" ? staffForm.doctor : null}
+        onSave={(input) => { const doctor = staffForm?.kind === "doctor" ? staffForm.doctor : null; void runStaffSave(() => doctor ? updateClinicDoctor(clinicId, doctor.id, input) : createClinicDoctor(clinicId, input), doctor ? "Doctor profile updated." : "Doctor added."); }} />}
+      {permissions.canManageSchedules && <ScheduleDialog open={staffForm?.kind === "schedule"} onOpenChange={(open) => !open && setStaffForm(null)} busy={busy} error={formError} onError={setFormError}
+        doctor={staffForm?.kind === "schedule" ? staffForm.doctor : null}
+        schedule={staffForm?.kind === "schedule" ? staffForm.schedule : null}
+        onSave={(input) => { if (staffForm?.kind !== "schedule") return; const { doctor, schedule } = staffForm; void runStaffSave(() => schedule ? updateDoctorSchedule(clinicId, schedule.id, input) : createDoctorSchedule(clinicId, doctor.id, input), schedule ? "Schedule updated." : "Schedule slot added."); }} />}
+      {permissions.canEditClinic && clinic && <ClinicDialog open={staffForm?.kind === "clinic"} onOpenChange={(open) => !open && setStaffForm(null)} busy={busy} error={formError} onError={setFormError}
+        clinic={clinic}
+        onSave={(input) => void runStaffSave(() => updateClinicDetails(clinicId, input), "Clinic details updated.")} />}
+      {permissions.canManagePatients && <PatientDialog open={staffForm?.kind === "patient"} onOpenChange={(open) => !open && setStaffForm(null)} busy={busy} error={formError} onError={setFormError}
+        patient={staffForm?.kind === "patient" ? staffForm.patient : null}
+        onSave={(input) => { const patient = staffForm?.kind === "patient" ? staffForm.patient : null; void runStaffSave(() => patient ? updateClinicPatient(clinicId, patient.id, input) : registerClinicPatient(clinicId, input), patient ? "Patient record updated." : "Patient registered."); }} />}
     </div>
   );
 }
@@ -335,15 +388,20 @@ function LiveContent(props: {
   onConsultation: () => void;
   onMarkRead: (item: NotificationRecord) => void;
   onNewAppointment: () => void;
+  permissions: StaffPermissions;
+  onEditDoctor: (doctor: DoctorRecord | null) => void;
+  onEditSchedule: (doctor: DoctorRecord, schedule: ScheduleRecord | null) => void;
+  onEditClinic: () => void;
+  onEditPatient: (patient: PatientRecord | null) => void;
 }) {
   if (props.section === "Overview") return <OverviewContent {...props} />;
   if (props.section === "Appointments") return <AppointmentsContent {...props} />;
-  if (props.section === "Patients") return <PatientsContent patients={props.patients} />;
+  if (props.section === "Patients") return <PatientsContent patients={props.patients} canManage={props.permissions.canManagePatients} onEdit={props.onEditPatient} />;
   if (props.section === "Triage Queue") return <TriageContent triage={props.triage} patients={props.allPatients} busy={props.busy} onReview={props.onReviewTriage} />;
-  if (props.section === "Doctors") return <DoctorsContent doctors={props.doctors} schedules={props.schedules} />;
+  if (props.section === "Doctors") return <DoctorsContent doctors={props.doctors} schedules={props.schedules} canManageDoctors={props.permissions.canManageDoctors} canManageSchedules={props.permissions.canManageSchedules} onEditDoctor={props.onEditDoctor} onEditSchedule={props.onEditSchedule} />;
   if (props.section === "Consultations") return <ConsultationsContent consultations={props.consultations} appointments={props.allAppointments} patients={props.allPatients} doctors={props.doctors} onCreate={props.onConsultation} />;
   if (props.section === "Notifications") return <NotificationsContent notifications={props.notifications} busy={props.busy} onRead={props.onMarkRead} />;
-  return <SettingsContent clinic={props.clinic} settings={props.settings} />;
+  return <SettingsContent clinic={props.clinic} settings={props.settings} permissions={props.permissions} onEditClinic={props.onEditClinic} />;
 }
 
 function OverviewContent(props: Parameters<typeof LiveContent>[0]) {
@@ -372,8 +430,8 @@ function AppointmentTable({ appointments, patients, doctors, busy, onStatus }: {
   return <div className="overflow-x-auto"><table className="w-full min-w-[760px] text-left"><thead className="bg-muted/50"><tr className="text-[10px] font-semibold uppercase text-muted-foreground"><th className="px-5 py-3">Patient</th><th className="px-3 py-3">Date & time</th><th className="px-3 py-3">Doctor</th><th className="px-3 py-3">Reason</th><th className="px-3 py-3">Status</th><th className="px-5 py-3 text-right">Action</th></tr></thead><tbody>{appointments.map((item) => { const status = normalizeStatus(item.status); return <tr key={item.id} className="border-t border-border text-xs"><td className="px-5 py-3 font-medium">{patientName(patients, item.patient_id)}</td><td className="px-3 py-3"><span className="block">{formatDate(item.appointment_date)}</span><span className="mt-1 block text-[10px] text-muted-foreground">{formatTime(item.appointment_time)}</span></td><td className="px-3 py-3 text-muted-foreground">{doctorName(doctors, item.doctor_id)}</td><td className="max-w-48 truncate px-3 py-3 text-muted-foreground">{item.reason || "—"}</td><td className="px-3 py-3"><StatusBadge value={status} /></td><td className="px-5 py-3 text-right">{status === "Pending" ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onStatus(item.id, "confirmed")}>Confirm</Button> : status === "Confirmed" ? <Button variant="outline" size="sm" disabled={busy} onClick={() => onStatus(item.id, "checked_in")}>Check in</Button> : <span className="text-[10px] text-muted-foreground">—</span>}</td></tr>; })}</tbody></table>{appointments.length === 0 && <EmptyMessage>No appointments are available in this clinic.</EmptyMessage>}</div>;
 }
 
-function PatientsContent({ patients }: { patients: PatientRecord[] }) {
-  return <article className="overflow-hidden border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Patient directory</h2><p className="mt-1 text-xs text-muted-foreground">Only records visible to your clinic are shown.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left"><thead className="bg-muted/50"><tr className="text-[10px] font-semibold uppercase text-muted-foreground"><th className="px-5 py-3">Patient</th><th className="px-3 py-3">Date of birth</th><th className="px-3 py-3">Gender</th><th className="px-3 py-3">Phone</th><th className="px-5 py-3">Email</th></tr></thead><tbody>{patients.map((patient) => <tr key={patient.id} className="border-t border-border text-xs"><td className="px-5 py-3"><span className="flex items-center gap-2"><PersonAvatar name={patient.full_name} />{patient.full_name}</span></td><td className="px-3 py-3 text-muted-foreground">{patient.date_of_birth ? formatDate(patient.date_of_birth) : "—"}</td><td className="px-3 py-3 text-muted-foreground">{patient.gender || "—"}</td><td className="px-3 py-3 text-muted-foreground">{patient.phone || "—"}</td><td className="px-5 py-3 text-muted-foreground">{patient.email || "—"}</td></tr>)}</tbody></table>{patients.length === 0 && <EmptyMessage>No patient records are available in this clinic.</EmptyMessage>}</div><div className="border-t border-border bg-muted/30 px-5 py-3 text-xs text-muted-foreground">Patient registration and record editing are unavailable under the current database access rules.</div></article>;
+function PatientsContent({ patients, canManage, onEdit }: { patients: PatientRecord[]; canManage: boolean; onEdit: (patient: PatientRecord | null) => void }) {
+  return <article className="overflow-hidden border border-border bg-card"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4"><div><h2 className="text-sm font-bold">Patient directory</h2><p className="mt-1 text-xs text-muted-foreground">Only records visible to your clinic are shown.</p></div>{canManage && <Button onClick={() => onEdit(null)} className="gap-2"><Plus className="size-4" />Register patient</Button>}</div><div className="overflow-x-auto"><table className="w-full min-w-[720px] text-left"><thead className="bg-muted/50"><tr className="text-[10px] font-semibold uppercase text-muted-foreground"><th className="px-5 py-3">Patient</th><th className="px-3 py-3">Date of birth</th><th className="px-3 py-3">Gender</th><th className="px-3 py-3">Phone</th><th className="px-3 py-3">Email</th>{canManage && <th className="px-5 py-3 text-right">Action</th>}</tr></thead><tbody>{patients.map((patient) => <tr key={patient.id} className="border-t border-border text-xs"><td className="px-5 py-3"><span className="flex items-center gap-2"><PersonAvatar name={patient.full_name} />{patient.full_name}</span></td><td className="px-3 py-3 text-muted-foreground">{patient.date_of_birth ? formatDate(patient.date_of_birth) : "—"}</td><td className="px-3 py-3 text-muted-foreground">{patient.gender || "—"}</td><td className="px-3 py-3 text-muted-foreground">{patient.phone || "—"}</td><td className="px-3 py-3 text-muted-foreground">{patient.email || "—"}</td>{canManage && <td className="px-5 py-3 text-right"><Button variant="outline" size="sm" onClick={() => onEdit(patient)}>Edit</Button></td>}</tr>)}</tbody></table>{patients.length === 0 && <EmptyMessage>No patient records are available in this clinic.</EmptyMessage>}</div><div className="border-t border-border bg-muted/30 px-5 py-3 text-xs text-muted-foreground">{canManage ? "Patients are registered to this clinic. Their clinic and linked account can't be changed from here." : "View only. Admins and receptionists register and edit patient records."}</div></article>;
 }
 
 function TriageContent({ triage, patients, busy, onReview }: { triage: TriageRecord[]; patients: PatientRecord[]; busy: boolean; onReview: (item: TriageRecord) => void }) {
@@ -387,8 +445,14 @@ function TriageItem({ item, patients, busy, onReview }: { item: TriageRecord; pa
   return <div className={`flex flex-col gap-3 border border-border p-4 sm:flex-row sm:items-start ${priority === "Emergency" ? "border-l-4 border-l-priority-emergency" : ""}`}><PersonAvatar name={patientName(patients, item.patient_id)} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold">{patientName(patients, item.patient_id)}</span><PriorityBadge value={priority} /></div><p className="mt-2 text-xs leading-relaxed text-muted-foreground">{item.ai_summary || item.symptoms || "No screening notes provided."}</p>{item.recommended_action && <p className="mt-2 text-xs"><span className="font-semibold">Suggested action:</span> {item.recommended_action}</p>}<p className="mt-2 text-[10px] text-muted-foreground">{item.created_at ? formatDateTime(item.created_at) : "Date not available"}</p></div>{reviewed ? <span className="flex items-center gap-1 text-xs font-medium text-status-positive"><Check className="size-4" />Reviewed</span> : <Button variant="outline" size="sm" disabled={busy} onClick={onReview}>Mark reviewed</Button>}</div>;
 }
 
-function DoctorsContent({ doctors, schedules }: { doctors: DoctorRecord[]; schedules: ClinicWorkspace["schedules"] }) {
-  return <><div className="mb-4 flex items-start gap-3 border-l-4 border-l-status-warning bg-status-warning/10 px-4 py-3 text-xs"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-status-warning" /><div><p className="font-semibold">Profile and schedule editing is unavailable</p><p className="mt-1 text-muted-foreground">The current database rules allow clinic staff to view doctor profiles and schedules, but not to add or edit them.</p></div></div><div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">{doctors.map((doctor) => <article key={doctor.id} className="border border-border bg-card p-5"><div className="flex items-center gap-3"><PersonAvatar name={doctor.full_name} /><div className="min-w-0"><h2 className="truncate text-sm font-semibold">{doctor.full_name}</h2><p className="mt-1 truncate text-xs text-muted-foreground">{doctor.specialization || "Specialty not listed"}</p></div></div><div className="mt-5 border-t border-border pt-4"><div className="flex justify-between text-xs"><span className="text-muted-foreground">Availability</span><StatusBadge value={doctor.availability_status || "Not listed"} /></div><div className="mt-4"><p className="mb-2 text-xs font-semibold">Weekly schedule</p>{schedules.filter((item) => item.doctor_id === doctor.id).map((item) => <div key={item.id} className="flex justify-between border-t border-border py-2 text-[11px]"><span>{item.day_of_week}</span><span className="text-muted-foreground">{item.is_available ? `${formatTime(item.start_time)} – ${formatTime(item.end_time)}` : "Unavailable"}</span></div>)}{!schedules.some((item) => item.doctor_id === doctor.id) && <p className="text-xs text-muted-foreground">No schedule is listed.</p>}</div></div></article>)}</div>{doctors.length === 0 && <EmptyMessage>No doctor profiles are available in this clinic.</EmptyMessage>}</>;
+function DoctorsContent({ doctors, schedules, canManageDoctors, canManageSchedules, onEditDoctor, onEditSchedule }: { doctors: DoctorRecord[]; schedules: ClinicWorkspace["schedules"]; canManageDoctors: boolean; canManageSchedules: boolean; onEditDoctor: (doctor: DoctorRecord | null) => void; onEditSchedule: (doctor: DoctorRecord, schedule: ScheduleRecord | null) => void }) {
+  return <>{canManageDoctors ? <div className="mb-4 flex justify-end"><Button onClick={() => onEditDoctor(null)} className="gap-2"><Plus className="size-4" />Add doctor</Button></div> : <div className="mb-4 flex items-start gap-3 border-l-4 border-l-muted-foreground/40 bg-muted/40 px-4 py-3 text-xs"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><p className="text-muted-foreground">View only. Clinic admins manage doctor profiles and schedules.</p></div>}<div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">{doctors.map((doctor) => { const slots = schedules.filter((item) => item.doctor_id === doctor.id).sort((a, b) => dayIndex(a.day_of_week) - dayIndex(b.day_of_week) || a.start_time.localeCompare(b.start_time)); return <article key={doctor.id} className="border border-border bg-card p-5"><div className="flex items-center gap-3"><PersonAvatar name={doctor.full_name} /><div className="min-w-0 flex-1"><h2 className="truncate text-sm font-semibold">{doctor.full_name}</h2><p className="mt-1 truncate text-xs text-muted-foreground">{doctor.specialization || "Specialty not listed"}</p></div>{canManageDoctors && <Button variant="outline" size="sm" onClick={() => onEditDoctor(doctor)}>Edit</Button>}</div><div className="mt-5 border-t border-border pt-4"><div className="flex justify-between text-xs"><span className="text-muted-foreground">Availability</span><StatusBadge value={doctor.availability_status || "Not listed"} /></div><div className="mt-4"><div className="mb-2 flex items-center justify-between"><p className="text-xs font-semibold">Weekly schedule</p>{canManageSchedules && <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-[11px]" onClick={() => onEditSchedule(doctor, null)}><Plus className="size-3.5" />Add slot</Button>}</div>{slots.map((item) => <div key={item.id} className="flex items-center justify-between gap-2 border-t border-border py-2 text-[11px]"><span>{item.day_of_week}</span><span className="ml-auto text-muted-foreground">{item.is_available ? `${formatTime(item.start_time)} – ${formatTime(item.end_time)}` : "Unavailable"}</span>{canManageSchedules && <Button variant="ghost" size="sm" className="h-6 px-2 text-[11px]" onClick={() => onEditSchedule(doctor, item)}>Edit</Button>}</div>)}{slots.length === 0 && <p className="text-xs text-muted-foreground">No schedule is listed.</p>}</div></div></article>; })}</div>{doctors.length === 0 && <EmptyMessage>No doctor profiles are available in this clinic.</EmptyMessage>}</>;
+}
+
+const WEEK_ORDER = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+function dayIndex(day: string) {
+  const index = WEEK_ORDER.indexOf(day.trim().toLowerCase());
+  return index === -1 ? 99 : index;
 }
 
 function ConsultationsContent({ consultations, appointments, patients, doctors, onCreate }: { consultations: ConsultationRecord[]; appointments: AppointmentRecord[]; patients: PatientRecord[]; doctors: DoctorRecord[]; onCreate: () => void }) {
@@ -403,8 +467,8 @@ function NotificationsContent({ notifications, busy, onRead }: { notifications: 
   return <article className="max-w-4xl border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Clinic alerts</h2><p className="mt-1 text-xs text-muted-foreground">Alerts are limited to items visible to your clinic membership.</p></div><div className="divide-y divide-border">{notifications.map((item) => <div key={item.id} className={`flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center ${item.is_read ? "" : "bg-primary/[0.025]"}`}><span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary"><Bell className="size-4" /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold">{item.title}</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">{item.message}</p><p className="mt-1 text-[10px] text-muted-foreground">{item.notification_type || "Clinic alert"} · {item.created_at ? formatDateTime(item.created_at) : "Date not listed"}</p></div>{!item.is_read && <Button variant="outline" size="sm" disabled={busy} onClick={() => onRead(item)}>Mark read</Button>}</div>)}{notifications.length === 0 && <EmptyMessage>No clinic alerts are available.</EmptyMessage>}</div></article>;
 }
 
-function SettingsContent({ clinic, settings }: { clinic: ClinicWorkspace["clinics"][number]; settings: ClinicWorkspace["settings"][number] | null }) {
-  return <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]"><article className="border border-border bg-card p-5 sm:p-6"><div className="border-b border-border pb-4"><h2 className="text-sm font-bold">Clinic information</h2><p className="mt-1 text-xs text-muted-foreground">Details stored for this clinic.</p></div><dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">{[["Clinic name", clinic.name], ["Phone", clinic.phone], ["Email", clinic.email], ["Address", clinic.address]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-1 text-sm font-medium">{value || "Not provided"}</dd></div>)}</dl><div className="mt-6 border-t border-border pt-4"><h3 className="text-xs font-semibold">Clinic preferences</h3><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">{settings?.settings ? JSON.stringify(settings.settings, null, 2) : "No additional clinic preferences are stored."}</pre></div></article><article className="border border-border bg-card p-5 sm:p-6"><h2 className="text-sm font-bold">Access and administration</h2><p className="mt-1 text-xs text-muted-foreground">What your current clinic access allows.</p><div className="mt-5 space-y-4 text-xs"><div className="border-b border-border pb-3"><p className="font-semibold">Clinic information</p><p className="mt-1 text-muted-foreground">Editing unavailable under current access rules.</p></div><div className="border-b border-border pb-3"><p className="font-semibold">Staff accounts</p><p className="mt-1 text-muted-foreground">Account management is unavailable under current access rules.</p></div><div><p className="font-semibold">Membership</p><p className="mt-1 text-muted-foreground">Clinic membership is verified on sign-in and database records remain protected by RLS.</p></div></div></article></div>;
+function SettingsContent({ clinic, settings, permissions, onEditClinic }: { clinic: ClinicWorkspace["clinics"][number]; settings: ClinicWorkspace["settings"][number] | null; permissions: StaffPermissions; onEditClinic: () => void }) {
+  return <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]"><article className="border border-border bg-card p-5 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4"><div><h2 className="text-sm font-bold">Clinic information</h2><p className="mt-1 text-xs text-muted-foreground">Details stored for this clinic.</p></div>{permissions.canEditClinic && <Button variant="outline" size="sm" onClick={onEditClinic}>Edit details</Button>}</div><dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">{[["Clinic name", clinic.name], ["Phone", clinic.phone], ["Email", clinic.email], ["Address", clinic.address]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-1 text-sm font-medium">{value || "Not provided"}</dd></div>)}</dl><div className="mt-6 border-t border-border pt-4"><h3 className="text-xs font-semibold">Clinic preferences</h3><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">{settings?.settings ? JSON.stringify(settings.settings, null, 2) : "No additional clinic preferences are stored."}</pre></div></article><article className="border border-border bg-card p-5 sm:p-6"><h2 className="text-sm font-bold">Access and administration</h2><p className="mt-1 text-xs text-muted-foreground">What your current clinic access allows.</p><div className="mt-5 space-y-4 text-xs"><div className="border-b border-border pb-3"><p className="font-semibold">Clinic information</p><p className="mt-1 text-muted-foreground">{permissions.canEditClinic ? "You can edit name, address, phone and email. Opening hours aren't editable here yet." : "View only. Clinic admins edit these details."}</p></div><div className="border-b border-border pb-3"><p className="font-semibold">Staff accounts</p><p className="mt-1 text-muted-foreground">Not available yet. Staff accounts are set up by the clinic's database administrator.</p></div><div><p className="font-semibold">Membership</p><p className="mt-1 text-muted-foreground">Your role: <span className="font-medium capitalize text-foreground">{permissions.role ?? "not set"}</span>. Access is checked on every save.</p></div></div></article></div>;
 }
 
 function DemoContent({ section, query, onSection }: { section: Section; query: string; onSection: (section: Section) => void }) {
