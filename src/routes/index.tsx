@@ -27,6 +27,23 @@ function SignInPage() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resetMode, setResetMode] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
+  async function handleReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSubmitting(true);
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setSubmitting(false);
+    if (resetError) {
+      setError("We couldn't send the reset email right now. Please try again shortly.");
+      return;
+    }
+    setResetSent(true);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -79,6 +96,32 @@ function SignInPage() {
               <p className="mt-2 text-sm text-muted-foreground">Use the email and password for your clinic account.</p>
             </div>
 
+            {resetMode ? (
+              <div className="mt-8 space-y-5">
+                {resetSent ? (
+                  <p role="status" className="rounded-lg border border-border bg-muted p-4 text-sm">
+                    If an account exists for that email, a reset link is on its way. Check your inbox.
+                  </p>
+                ) : (
+                  <form className="space-y-5" onSubmit={handleReset}>
+                    <p className="text-sm text-muted-foreground">Enter your account email and we'll send you a secure reset link.</p>
+                    <div className="space-y-2">
+                      <label htmlFor="reset-email" className="text-sm font-medium">Email address</label>
+                      <Input id="reset-email" type="email" autoComplete="username" required value={email}
+                        onChange={(event) => setEmail(event.target.value)} placeholder="you@yourclinic.com" />
+                    </div>
+                    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+                    <Button type="submit" className="h-11 w-full" disabled={submitting}>
+                      {submitting ? "Sending…" : "Send reset link"}
+                    </Button>
+                  </form>
+                )}
+                <button type="button" className="w-full text-center text-sm font-medium text-primary hover:underline"
+                  onClick={() => { setResetMode(false); setResetSent(false); setError(""); }}>
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
             <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
               <div className="space-y-2">
                 <label htmlFor="email" className="text-sm font-medium">Email address</label>
@@ -94,7 +137,13 @@ function SignInPage() {
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="password" className="text-sm font-medium">Password</label>
+                <div className="flex items-center justify-between">
+                  <label htmlFor="password" className="text-sm font-medium">Password</label>
+                  <button type="button" className="text-sm font-medium text-primary hover:underline"
+                    onClick={() => { setResetMode(true); setError(""); }}>
+                    Forgot password?
+                  </button>
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -129,6 +178,7 @@ function SignInPage() {
                 {!submitting && <ArrowRight className="size-4" aria-hidden="true" />}
               </Button>
             </form>
+            )}
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Need access? Contact your clinic administrator.
