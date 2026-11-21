@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Json } from "@/integrations/supabase/types";
+import { staffMembershipsOnly } from "@/lib/carepulse-staff-access";
 
 export type ClinicMembership = { clinic_id: string; role: string };
 
@@ -136,7 +137,8 @@ export async function readClinicWorkspace(userId: string): Promise<ClinicWorkspa
     .from("clinic_members")
     .select("clinic_id, role")
     .eq("user_id", userId);
-  const memberships = readRows(membershipResult);
+  // Only admin, doctor and receptionist memberships open clinic records.
+  const memberships = staffMembershipsOnly(readRows(membershipResult));
   const memberClinicIds = getMembershipClinicIds(memberships);
 
   if (memberClinicIds.length === 0) {

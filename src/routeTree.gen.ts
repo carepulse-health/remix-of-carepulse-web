@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as StaffLoginRouteImport } from './routes/staff-login'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 
 const IndexRoute = IndexRouteImport.update({
@@ -28,6 +29,11 @@ const ResetPasswordRoute = ResetPasswordRouteImport.update({
   path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StaffLoginRoute = StaffLoginRouteImport.update({
+  id: '/staff-login',
+  path: '/staff-login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -37,11 +43,13 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/staff-login': typeof StaffLoginRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/staff-login': typeof StaffLoginRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
 }
 export interface FileRoutesById {
@@ -49,18 +57,20 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/reset-password': typeof ResetPasswordRoute
+  '/staff-login': typeof StaffLoginRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/reset-password' | '/dashboard'
+  fullPaths: '/' | '/reset-password' | '/staff-login' | '/dashboard'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/reset-password' | '/dashboard'
+  to: '/' | '/reset-password' | '/staff-login' | '/dashboard'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/reset-password'
+    | '/staff-login'
     | '/_authenticated/dashboard'
   fileRoutesById: FileRoutesById
 }
@@ -68,6 +78,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   ResetPasswordRoute: typeof ResetPasswordRoute
+  StaffLoginRoute: typeof StaffLoginRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -91,6 +102,13 @@ declare module '@tanstack/react-router' {
       path: '/reset-password'
       fullPath: '/reset-password'
       preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/staff-login': {
+      id: '/staff-login'
+      path: '/staff-login'
+      fullPath: '/staff-login'
+      preLoaderRoute: typeof StaffLoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/dashboard': {
@@ -118,6 +136,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   ResetPasswordRoute: ResetPasswordRoute,
+  StaffLoginRoute: StaffLoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

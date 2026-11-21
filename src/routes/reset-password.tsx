@@ -30,9 +30,9 @@ function ResetPasswordPage() {
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") setReady(true);
+      if (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN") setReady(true);
     });
-    if (window.location.hash.includes("type=recovery")) setReady(true);
+    if (/type=(recovery|invite)/.test(window.location.hash)) setReady(true);
     supabase.auth.getSession().then(({ data: s }) => { if (s.session) setReady(true); });
     return () => data.subscription.unsubscribe();
   }, []);
@@ -47,7 +47,7 @@ function ResetPasswordPage() {
     setSaving(false);
     if (updateError) return setError("We couldn't update your password. Request a new reset link and try again.");
     await supabase.auth.signOut();
-    await navigate({ to: "/" });
+    await navigate({ to: "/staff-login" });
   }
 
   return (
@@ -81,7 +81,7 @@ function ResetPasswordPage() {
             Open this page from the reset link in your email. Links expire, so request a new one if needed.
           </p>
         )}
-        <Link to="/" className="mt-6 block text-center text-sm font-medium text-primary hover:underline">
+        <Link to="/staff-login" className="mt-6 block text-center text-sm font-medium text-primary hover:underline">
           Back to sign in
         </Link>
       </section>

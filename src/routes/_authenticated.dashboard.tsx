@@ -4,7 +4,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import {
   Activity, AlertCircle, ArrowRight, Bell, CalendarDays, Check, CheckCircle2,
   ChevronDown, Clock3, ClipboardList, HeartPulse, LayoutDashboard, LogOut,
-  Menu, Plus, Search, Settings2, ShieldCheck, Stethoscope, Users, UserRound,
+  Menu, Plus, Search, Settings2, ShieldCheck, Stethoscope, Users, UserCog, UserRound,
   X,
 } from "lucide-react";
 
@@ -29,14 +29,11 @@ import {
 } from "@/lib/carepulse-staff-data";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  initialAppointments, initialDoctors, initialPatients, initialTriage,
-} from "@/lib/carepulse-data";
+  landingSectionForRole, SECTION_SLUGS, sectionFromSlug, sectionsForRole, type WorkspaceSection,
+} from "@/lib/carepulse-staff-access";
+import { StaffManagement } from "@/components/carepulse/staff-management";
 
-type Section = "Overview" | "Appointments" | "Patients" | "Triage Queue" | "Doctors" | "Consultations" | "Notifications" | "Settings";
-type DemoAppointment = (typeof initialAppointments)[number];
-type DemoPatient = (typeof initialPatients)[number];
-type DemoDoctor = (typeof initialDoctors)[number];
-type DemoTriage = (typeof initialTriage)[number];
+type Section = WorkspaceSection;
 type StaffForm =
   | { kind: "doctor"; doctor: DoctorRecord | null }
   | { kind: "schedule"; doctor: DoctorRecord; schedule: ScheduleRecord | null }
@@ -45,6 +42,8 @@ type StaffForm =
   | null;
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
+  validateSearch: (search: Record<string, unknown>): { section?: string | undefined } =>
+    typeof search["section"] === "string" ? { section: search["section"] } : {},
   head: () => ({
     meta: [
       { title: "Clinic staff dashboard | CarePulse" },
@@ -71,6 +70,7 @@ const navItems: { label: Section; icon: typeof LayoutDashboard }[] = [
   { label: "Consultations", icon: ClipboardList },
   { label: "Notifications", icon: Bell },
   { label: "Settings", icon: Settings2 },
+  { label: "Staff", icon: UserCog },
 ];
 
 function CarePulseDashboard() {
@@ -79,7 +79,7 @@ function CarePulseDashboard() {
   const { data: workspace } = useSuspenseQuery(clinicWorkspaceQueryOptions(user.id));
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const [section, setSection] = useState<Section>("Overview");
+  const search = Route.useSearch();
   const [selectedClinicId, setSelectedClinicId] = useState(workspace.clinics[0]?.id ?? "");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -92,18 +92,25 @@ function CarePulseDashboard() {
   const [staffForm, setStaffForm] = useState<StaffForm>(null);
   const [formError, setFormError] = useState("");
 
-  const demoMode = workspace.memberships.length === 0;
   const clinic = workspace.clinics.find((item) => item.id === selectedClinicId) ?? workspace.clinics[0] ?? null;
   const clinicId = clinic?.id ?? "";
-  const patients = demoMode ? [] : workspace.patients.filter((item) => item.clinic_id === clinicId);
-  const appointments = demoMode ? [] : workspace.appointments.filter((item) => item.clinic_id === clinicId);
-  const doctors = demoMode ? [] : workspace.doctors.filter((item) => item.clinic_id === clinicId);
-  const schedules = demoMode ? [] : workspace.schedules.filter((item) => item.clinic_id === clinicId);
-  const triage = demoMode ? [] : workspace.triage.filter((item) => item.clinic_id === clinicId);
-  const consultations = demoMode ? [] : workspace.consultations.filter((item) => item.clinic_id === clinicId);
-  const notifications = demoMode ? [] : workspace.notifications.filter((item) => !item.clinic_id || item.clinic_id === clinicId);
-  const settings = demoMode ? null : workspace.settings.find((item) => item.clinic_id === clinicId) ?? null;
+  const patients = workspace.patients.filter((item) => item.clinic_id === clinicId);
+  const appointments = workspace.appointments.filter((item) => item.clinic_id === clinicId);
+  const doctors = workspace.doctors.filter((item) => item.clinic_id === clinicId);
+  const schedules = workspace.schedules.filter((item) => item.clinic_id === clinicId);
+  const triage = workspace.triage.filter((item) => item.clinic_id === clinicId);
+  const consultations = workspace.consultations.filter((item) => item.clinic_id === clinicId);
+  const notifications = workspace.notifications.filter((item) => !item.clinic_id || item.clinic_id === clinicId);
+  const settings = workspace.settings.find((item) => item.clinic_id === clinicId) ?? null;
   const permissions = getStaffPermissions(workspace.memberships, clinicId);
+  // The side menu and the page shown follow the staff member's role in this clinic.
+  const allowedSections = sectionsForRole(permissions.role);
+  const requestedSection = sectionFromSlug(search.section);
+  const section: Section = requestedSection && allowedSections.includes(requestedSection) ? requestedSection : landingSectionForRole(permissions.role);
+  const visibleNavItems = navItems.filter((item) => allowedSections.includes(item.label));
+  function setSection(next: Section) {
+    void navigate({ to: "/dashboard", search: { section: SECTION_SLUGS[next] } });
+  }
   const searchable = query.trim().toLocaleLowerCase();
   const filteredPatients = patients.filter((patient) => !searchable || [patient.full_name, patient.phone ?? "", patient.email ?? ""].some((text) => text.toLocaleLowerCase().includes(searchable)));
   const filteredAppointments = appointments.filter((appointment) => {
@@ -121,6 +128,7 @@ function CarePulseDashboard() {
     Consultations: "Review and record clinical consultations.",
     Notifications: "Important clinic alerts and reminders.",
     Settings: "Clinic information and access status.",
+    Staff: "Invite clinic staff, assign roles and remove access.",
   };
 
   async function reloadWorkspace() {
@@ -136,7 +144,7 @@ function CarePulseDashboard() {
       setErrorMessage("You could not be signed out. Please try again.");
       return;
     }
-    await navigate({ to: "/", replace: true });
+    await navigate({ to: "/staff-login", replace: true });
   }
 
   async function saveAppointment(event: FormEvent<HTMLFormElement>) {
@@ -283,15 +291,15 @@ function CarePulseDashboard() {
               <SelectContent>{shownClinicNames.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
             </Select>
           ) : (
-            <div className="flex items-center gap-3 rounded-md px-2 py-2"><span className="flex size-8 items-center justify-center rounded-md bg-sidebar-primary/15 text-sidebar-primary"><HeartPulse className="size-4" /></span><span className="min-w-0"><span className="block truncate text-xs font-semibold">{clinic?.name ?? "Clinic workspace"}</span><span className="mt-0.5 block truncate text-[10px] text-sidebar-foreground/60">{demoMode ? "Sample workspace" : "Authorized clinic"}</span></span></div>
+            <div className="flex items-center gap-3 rounded-md px-2 py-2"><span className="flex size-8 items-center justify-center rounded-md bg-sidebar-primary/15 text-sidebar-primary"><HeartPulse className="size-4" /></span><span className="min-w-0"><span className="block truncate text-xs font-semibold">{clinic?.name ?? "Clinic workspace"}</span><span className="mt-0.5 block truncate text-[10px] text-sidebar-foreground/60"><span className="capitalize">{permissions.role ?? "Staff"}</span> · Authorized clinic</span></span></div>
           )}
         </div>
         <nav aria-label="Clinic sections" className="flex-1 overflow-y-auto px-3 py-5">
           <p className="mb-2 px-3 text-[9px] font-bold tracking-[0.15em] text-sidebar-foreground/45">CLINIC WORKSPACE</p>
-          <div className="space-y-1">{navItems.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" onClick={() => { setSection(label); setDrawerOpen(false); setNotice(""); setErrorMessage(""); }} className={`h-10 w-full justify-start gap-3 rounded-md px-3 text-xs ${section === label ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"}`}><Icon className={`size-4 ${section === label ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />{label}{label === "Notifications" && unreadCount > 0 && <span className="ml-auto rounded-full bg-destructive px-1.5 py-0.5 text-[9px] font-bold text-destructive-foreground">{unreadCount}</span>}</Button>)}</div>
+          <div className="space-y-1">{visibleNavItems.map(({ label, icon: Icon }) => <Button key={label} variant="ghost" onClick={() => { setSection(label); setDrawerOpen(false); setNotice(""); setErrorMessage(""); }} className={`h-10 w-full justify-start gap-3 rounded-md px-3 text-xs ${section === label ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"}`}><Icon className={`size-4 ${section === label ? "text-sidebar-primary" : "text-sidebar-foreground/60"}`} />{label}{label === "Notifications" && unreadCount > 0 && <span className="ml-auto rounded-full bg-destructive px-1.5 py-0.5 text-[9px] font-bold text-destructive-foreground">{unreadCount}</span>}</Button>)}</div>
         </nav>
         <div className="border-t border-sidebar-border p-3">
-          <div className="rounded-md bg-sidebar-accent/70 px-3 py-3"><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-2 rounded-full bg-status-positive" />{demoMode ? "Sample workspace" : "Clinic access verified"}</div><p className="mt-1.5 pl-4 text-[10px] text-sidebar-foreground/55">{demoMode ? "No live clinic records shown" : "Records governed by clinic access"}</p></div>
+          <div className="rounded-md bg-sidebar-accent/70 px-3 py-3"><div className="flex items-center gap-2 text-[11px] font-semibold"><span className="size-2 rounded-full bg-status-positive" />Clinic access verified</div><p className="mt-1.5 pl-4 text-[10px] text-sidebar-foreground/55">Records governed by clinic access</p></div>
           <Button variant="ghost" onClick={handleSignOut} className="mt-2 h-10 w-full justify-start gap-3 px-3 text-[11px] text-sidebar-foreground/75 hover:bg-sidebar-accent"><LogOut className="size-4" />Sign out</Button>
         </div>
       </aside>
@@ -311,16 +319,15 @@ function CarePulseDashboard() {
         </header>
 
         <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
-          {demoMode && <div role="status" className="mb-6 flex gap-3 border-l-4 border-l-status-warning bg-status-warning/10 px-4 py-3 text-sm"><ShieldCheck className="mt-0.5 size-4 shrink-0 text-status-warning" /><div><p className="font-semibold">Sample workspace · no live patient data</p><p className="mt-1 text-xs leading-relaxed text-muted-foreground">Your account has no clinic membership yet. Demo records are shown separately and cannot be changed or saved.</p></div></div>}
-          {!demoMode && workspace.clinics.length === 0 && <div role="alert" className="mb-6 border-l-4 border-l-destructive bg-destructive/10 px-4 py-3 text-sm"><p className="font-semibold">Clinic access needs attention</p><p className="mt-1 text-xs text-muted-foreground">Your account is listed as a clinic member, but no clinic records are available under the current access rules. Ask your clinic administrator to review your membership.</p></div>}
+          {workspace.clinics.length === 0 && <div role="alert" className="mb-6 border-l-4 border-l-destructive bg-destructive/10 px-4 py-3 text-sm"><p className="font-semibold">Clinic access needs attention</p><p className="mt-1 text-xs text-muted-foreground">Your account is listed as a clinic member, but no clinic records are available under the current access rules. Ask your clinic administrator to review your membership.</p></div>}
           {errorMessage && <div role="alert" className="mb-4 border-l-4 border-l-destructive bg-destructive/10 px-4 py-3 text-sm text-destructive">{errorMessage}</div>}
           {notice && <div role="status" className="mb-4 border-l-4 border-l-status-positive bg-status-positive/10 px-4 py-3 text-sm text-status-positive">{notice}</div>}
           <div className="mb-7 flex flex-col justify-between gap-4 sm:mb-8 sm:flex-row sm:items-end">
             <div><p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-care-blue">{formatToday()}</p><h1 className="font-display text-[26px] font-bold leading-tight sm:text-[30px]">{section === "Overview" ? "Clinic overview" : section}</h1><p className="mt-1.5 text-sm text-muted-foreground">{pageDescriptions[section]}</p></div>
-            {!demoMode && clinic && <div className="flex flex-wrap gap-2"><Button variant="outline" className="h-10 gap-2" onClick={() => { setErrorMessage(""); setAppointmentModal(true); }}><CalendarDays className="size-4" />Schedule appointment</Button>{section === "Consultations" && <Button className="h-10 gap-2" onClick={() => { setSelectedAppointment(null); setConsultationModal(true); }}><Plus className="size-4" />Record consultation</Button>}</div>}
+            {clinic && section !== "Staff" && section !== "Settings" && <div className="flex flex-wrap gap-2"><Button variant="outline" className="h-10 gap-2" onClick={() => { setErrorMessage(""); setAppointmentModal(true); }}><CalendarDays className="size-4" />Schedule appointment</Button>{section === "Consultations" && <Button className="h-10 gap-2" onClick={() => { setSelectedAppointment(null); setConsultationModal(true); }}><Plus className="size-4" />Record consultation</Button>}</div>}
           </div>
 
-          {demoMode ? <DemoContent section={section} query={query} onSection={setSection} /> : clinic ? <LiveContent
+          {clinic ? <LiveContent
             section={section}
             patients={filteredPatients}
             allPatients={patients}
@@ -334,6 +341,7 @@ function CarePulseDashboard() {
             clinic={clinic}
             settings={settings}
             userId={user.id}
+            canOpenStaff={allowedSections.includes("Staff")}
             busy={busy}
             onAppointmentStatus={updateAppointment}
             onReviewTriage={reviewTriage}
@@ -382,6 +390,7 @@ function LiveContent(props: {
   clinic: NonNullable<ClinicWorkspace["clinics"][number]>;
   settings: ClinicWorkspace["settings"][number] | null;
   userId: string;
+  canOpenStaff: boolean;
   busy: boolean;
   onAppointmentStatus: (id: string, status: string) => void;
   onReviewTriage: (item: TriageRecord) => void;
@@ -400,6 +409,7 @@ function LiveContent(props: {
   if (props.section === "Triage Queue") return <TriageContent triage={props.triage} patients={props.allPatients} busy={props.busy} onReview={props.onReviewTriage} />;
   if (props.section === "Doctors") return <DoctorsContent doctors={props.doctors} schedules={props.schedules} canManageDoctors={props.permissions.canManageDoctors} canManageSchedules={props.permissions.canManageSchedules} onEditDoctor={props.onEditDoctor} onEditSchedule={props.onEditSchedule} />;
   if (props.section === "Consultations") return <ConsultationsContent consultations={props.consultations} appointments={props.allAppointments} patients={props.allPatients} doctors={props.doctors} onCreate={props.onConsultation} />;
+  if (props.section === "Staff") return props.canOpenStaff ? <StaffManagement clinicId={props.clinic.id} currentUserId={props.userId} /> : null;
   if (props.section === "Notifications") return <NotificationsContent notifications={props.notifications} busy={props.busy} onRead={props.onMarkRead} />;
   return <SettingsContent clinic={props.clinic} settings={props.settings} permissions={props.permissions} onEditClinic={props.onEditClinic} />;
 }
@@ -468,35 +478,7 @@ function NotificationsContent({ notifications, busy, onRead }: { notifications: 
 }
 
 function SettingsContent({ clinic, settings, permissions, onEditClinic }: { clinic: ClinicWorkspace["clinics"][number]; settings: ClinicWorkspace["settings"][number] | null; permissions: StaffPermissions; onEditClinic: () => void }) {
-  return <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]"><article className="border border-border bg-card p-5 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4"><div><h2 className="text-sm font-bold">Clinic information</h2><p className="mt-1 text-xs text-muted-foreground">Details stored for this clinic.</p></div>{permissions.canEditClinic && <Button variant="outline" size="sm" onClick={onEditClinic}>Edit details</Button>}</div><dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">{[["Clinic name", clinic.name], ["Phone", clinic.phone], ["Email", clinic.email], ["Address", clinic.address]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-1 text-sm font-medium">{value || "Not provided"}</dd></div>)}</dl><div className="mt-6 border-t border-border pt-4"><h3 className="text-xs font-semibold">Clinic preferences</h3><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">{settings?.settings ? JSON.stringify(settings.settings, null, 2) : "No additional clinic preferences are stored."}</pre></div></article><article className="border border-border bg-card p-5 sm:p-6"><h2 className="text-sm font-bold">Access and administration</h2><p className="mt-1 text-xs text-muted-foreground">What your current clinic access allows.</p><div className="mt-5 space-y-4 text-xs"><div className="border-b border-border pb-3"><p className="font-semibold">Clinic information</p><p className="mt-1 text-muted-foreground">{permissions.canEditClinic ? "You can edit name, address, phone and email. Opening hours aren't editable here yet." : "View only. Clinic admins edit these details."}</p></div><div className="border-b border-border pb-3"><p className="font-semibold">Staff accounts</p><p className="mt-1 text-muted-foreground">Not available yet. Staff accounts are set up by the clinic's database administrator.</p></div><div><p className="font-semibold">Membership</p><p className="mt-1 text-muted-foreground">Your role: <span className="font-medium capitalize text-foreground">{permissions.role ?? "not set"}</span>. Access is checked on every save.</p></div></div></article></div>;
-}
-
-function DemoContent({ section, query, onSection }: { section: Section; query: string; onSection: (section: Section) => void }) {
-  const patients = initialPatients.filter((item) => !query || `${item.name} ${item.phone} ${item.id}`.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
-  if (section === "Overview") return <>
-    <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">{[
-      { title: "Total patients", value: "1,248", icon: Users, tint: "text-primary bg-primary/10" },
-      { title: "Appointments", value: "24", icon: CalendarDays, tint: "text-care-teal bg-care-teal/12" },
-      { title: "Pending screenings", value: "3", icon: Activity, tint: "text-status-warning bg-status-warning/15" },
-      { title: "Consultations", value: "31", icon: ClipboardList, tint: "text-status-positive bg-status-positive/12" },
-    ].map(({ title, value, icon: Icon, tint }) => <article key={title} className="border border-border bg-card p-5"><div className="flex items-start justify-between"><div><p className="text-xs font-medium text-muted-foreground">{title}</p><p className="mt-3 text-3xl font-bold">{value}</p></div><span className={`flex size-10 items-center justify-center rounded-md ${tint}`}><Icon className="size-5" /></span></div><p className="mt-3 text-[11px] text-muted-foreground">Sample clinic figures</p></article>)}</section>
-    <section className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2"><article className="border border-border bg-card"><div className="flex items-center justify-between border-b border-border px-5 py-4"><div><h2 className="text-sm font-bold">Upcoming appointments</h2><p className="mt-1 text-xs text-muted-foreground">Sample schedule</p></div><Button variant="ghost" size="sm" onClick={() => onSection("Appointments")}>View all <ArrowRight className="ml-1 size-3.5" /></Button></div><DemoAppointmentList items={initialAppointments.slice(0, 4)} /></article><article className="border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Screenings awaiting review</h2><p className="mt-1 text-xs text-muted-foreground">Sample queue</p></div><div className="space-y-3 p-4">{initialTriage.filter((item) => !item.reviewed).slice(0, 3).map((item) => <DemoTriageItem key={item.id} item={item} />)}</div></article></section>
-  </>;
-  if (section === "Patients") return <article className="overflow-hidden border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Sample patient directory</h2><p className="mt-1 text-xs text-muted-foreground">{patients.length} fictional demo records · registration and editing are not available</p></div><div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left"><thead className="bg-muted/50"><tr className="text-[10px] font-semibold uppercase text-muted-foreground"><th className="px-5 py-3">Patient</th><th className="px-3 py-3">Sample ID</th><th className="px-3 py-3">Age / gender</th><th className="px-5 py-3">Phone</th></tr></thead><tbody>{patients.map((item) => <tr key={item.id} className="border-t border-border text-xs"><td className="px-5 py-3">{item.name}</td><td className="px-3 py-3 text-muted-foreground">{item.id}</td><td className="px-3 py-3 text-muted-foreground">{item.age} / {item.gender}</td><td className="px-5 py-3 text-muted-foreground">{item.phone}</td></tr>)}</tbody></table></div></article>;
-  if (section === "Appointments") return <article className="overflow-hidden border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Sample appointments</h2><p className="mt-1 text-xs text-muted-foreground">Sample records cannot be changed or saved.</p></div><DemoAppointmentList items={initialAppointments} /></article>;
-  if (section === "Triage Queue") return <article className="border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Sample triage queue</h2><p className="mt-1 text-xs text-muted-foreground">Fictional screening entries for preview only.</p></div><div className="space-y-3 p-4">{initialTriage.map((item) => <DemoTriageItem key={item.id} item={item} />)}</div><p className="border-t border-border px-5 py-4 text-xs text-muted-foreground">Clinical review actions are not available in the sample workspace.</p></article>;
-  if (section === "Doctors") return <><div className="mb-4 border-l-4 border-l-status-warning bg-status-warning/10 px-4 py-3 text-xs"><p className="font-semibold">Doctor and schedule editing is unfinished</p><p className="mt-1 text-muted-foreground">Sample profiles are shown for preview. Live editing is disabled by current database permissions.</p></div><div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">{initialDoctors.map((doctor) => <article key={doctor.id} className="border border-border bg-card p-5"><div className="flex items-center gap-3"><PersonAvatar name={doctor.name} /><div><p className="text-sm font-semibold">{doctor.name}</p><p className="mt-1 text-xs text-muted-foreground">{doctor.specialty}</p></div></div><p className="mt-4 text-xs text-muted-foreground">{doctor.hours} · {doctor.availability}</p></article>)}</div></>;
-  if (section === "Consultations") return <article className="border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Sample consultation visits</h2><p className="mt-1 text-xs text-muted-foreground">Appointments marked in consultation or completed are illustrative only.</p></div><DemoAppointmentList items={initialAppointments.filter((item) => item.status === "Checked In" || item.status === "In Consultation" || item.status === "Completed")} /></article>;
-  if (section === "Notifications") return <article className="max-w-4xl border border-border bg-card"><div className="border-b border-border px-5 py-4"><h2 className="text-sm font-bold">Sample clinic alerts</h2><p className="mt-1 text-xs text-muted-foreground">Illustrative notifications only; no live clinic alerts were found.</p></div>{initialTriage.filter((item) => !item.reviewed).map((item) => <div key={item.id} className="flex items-start gap-3 border-b border-border px-5 py-4"><span className="flex size-9 items-center justify-center rounded-full bg-destructive/10 text-destructive"><Bell className="size-4" /></span><div><p className="text-sm font-semibold">Screening needs review</p><p className="mt-1 text-xs text-muted-foreground">{item.patient} · {item.summary}</p></div></div>)}</article>;
-  return <div className="border border-border bg-card p-6"><h2 className="text-sm font-bold">Settings are not connected</h2><p className="mt-2 text-sm text-muted-foreground">Clinic details and staff accounts are not editable in this sample workspace.</p></div>;
-}
-
-function DemoAppointmentList({ items }: { items: DemoAppointment[] }) {
-  return <div className="divide-y divide-border">{items.map((item) => <div key={item.id} className="flex flex-wrap items-center gap-3 px-5 py-3"><PersonAvatar name={item.patient} /><div className="min-w-40 flex-1"><p className="text-xs font-semibold">{item.patient}</p><p className="mt-1 text-[10px] text-muted-foreground">{item.reason}</p></div><span className="text-xs text-muted-foreground">{item.date} · {item.time}</span><StatusBadge value={item.status} /></div>)}</div>;
-}
-
-function DemoTriageItem({ item }: { item: DemoTriage }) {
-  return <div className={`flex flex-col gap-2 border border-border p-4 sm:flex-row sm:items-center ${item.priority === "Emergency" ? "border-l-4 border-l-priority-emergency" : ""}`}><PersonAvatar name={item.patient} /><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-semibold">{item.patient}</p><PriorityBadge value={item.priority} /></div><p className="mt-1 text-xs text-muted-foreground">{item.summary}</p></div><span className="text-xs text-muted-foreground">{item.reviewed ? "Reviewed" : "Needs review"}</span></div>;
+  return <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]"><article className="border border-border bg-card p-5 sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-4"><div><h2 className="text-sm font-bold">Clinic information</h2><p className="mt-1 text-xs text-muted-foreground">Details stored for this clinic.</p></div>{permissions.canEditClinic && <Button variant="outline" size="sm" onClick={onEditClinic}>Edit details</Button>}</div><dl className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2">{[["Clinic name", clinic.name], ["Phone", clinic.phone], ["Email", clinic.email], ["Address", clinic.address]].map(([label, value]) => <div key={label}><dt className="text-[11px] text-muted-foreground">{label}</dt><dd className="mt-1 text-sm font-medium">{value || "Not provided"}</dd></div>)}</dl><div className="mt-6 border-t border-border pt-4"><h3 className="text-xs font-semibold">Clinic preferences</h3><pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">{settings?.settings ? JSON.stringify(settings.settings, null, 2) : "No additional clinic preferences are stored."}</pre></div></article><article className="border border-border bg-card p-5 sm:p-6"><h2 className="text-sm font-bold">Access and administration</h2><p className="mt-1 text-xs text-muted-foreground">What your current clinic access allows.</p><div className="mt-5 space-y-4 text-xs"><div className="border-b border-border pb-3"><p className="font-semibold">Clinic information</p><p className="mt-1 text-muted-foreground">{permissions.canEditClinic ? "You can edit name, address, phone and email. Opening hours aren't editable here yet." : "View only. Clinic admins edit these details."}</p></div><div className="border-b border-border pb-3"><p className="font-semibold">Staff accounts</p><p className="mt-1 text-muted-foreground">{permissions.role === "admin" ? "Invite staff, change roles and remove access on the Staff page." : "Clinic admins invite staff and assign roles."}</p></div><div><p className="font-semibold">Membership</p><p className="mt-1 text-muted-foreground">Your role: <span className="font-medium capitalize text-foreground">{permissions.role ?? "not set"}</span>. Access is checked on every save.</p></div></div></article></div>;
 }
 
 function AppointmentDialog({ open, onOpenChange, patients, doctors, busy, onSubmit }: { open: boolean; onOpenChange: (open: boolean) => void; patients: PatientRecord[]; doctors: DoctorRecord[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {

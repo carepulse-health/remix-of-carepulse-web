@@ -1,8 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { ClinicMembership } from "@/lib/carepulse-staff-data";
 
-export const STAFF_ROLES = ["admin", "doctor", "receptionist"] as const;
-export type StaffRole = (typeof STAFF_ROLES)[number];
+export const STAFF_ONLY_MESSAGE = "This sign-in is for clinic staff only. Patients can use the CarePulse mobile app.";
+
+import { isStaffRole, STAFF_ROLES, type StaffRole } from "@/lib/staff-roles";
+
+export { isStaffRole, STAFF_ROLES, type StaffRole };
 
 export type WorkspaceSection =
   | "Overview" | "Appointments" | "Patients" | "Triage Queue" | "Doctors"
@@ -23,10 +26,6 @@ export const SECTION_SLUGS: Record<WorkspaceSection, string> = {
 export function sectionFromSlug(slug: unknown): WorkspaceSection | undefined {
   const entry = Object.entries(SECTION_SLUGS).find(([, value]) => value === slug);
   return entry?.[0] as WorkspaceSection | undefined;
-}
-
-export function isStaffRole(role: unknown): role is StaffRole {
-  return typeof role === "string" && (STAFF_ROLES as readonly string[]).includes(role.trim().toLowerCase());
 }
 
 /** Only admin, doctor and receptionist memberships open the staff workspace. */
