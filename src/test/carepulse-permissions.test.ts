@@ -16,10 +16,10 @@ describe("Staff permissions", () => {
     expect(getStaffPermissions([{ clinic_id: clinic, role: "receptionist" }], clinic).canManagePatients).toBe(true);
   });
 
-  it("keeps receptionists away from doctors, schedules and clinic details", () => {
+  it("lets receptionists manage doctors and schedules but not clinic details", () => {
     const p = getStaffPermissions([{ clinic_id: clinic, role: "receptionist" }], clinic);
-    expect(p.canManageDoctors).toBe(false);
-    expect(p.canManageSchedules).toBe(false);
+    expect(p.canManageDoctors).toBe(true);
+    expect(p.canManageSchedules).toBe(true);
     expect(p.canEditClinic).toBe(false);
   });
 
@@ -27,6 +27,7 @@ describe("Staff permissions", () => {
     const p = getStaffPermissions([{ clinic_id: clinic, role: "doctor" }], clinic);
     expect(p.canManagePatients).toBe(false);
     expect(p.canManageDoctors).toBe(false);
+    expect(p.canManageSchedules).toBe(false);
   });
 
   it("ignores an admin role held in a different clinic", () => {

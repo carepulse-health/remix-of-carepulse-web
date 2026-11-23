@@ -17,8 +17,8 @@ export function getStaffPermissions(memberships: ClinicMembership[], clinicId: s
   const isReceptionist = roles.includes("receptionist");
   return {
     role: isAdmin ? "admin" : roles[0] ?? null,
-    canManageDoctors: isAdmin,
-    canManageSchedules: isAdmin,
+    canManageDoctors: isAdmin || isReceptionist,
+    canManageSchedules: isAdmin || isReceptionist,
     canEditClinic: isAdmin,
     canManagePatients: isAdmin || isReceptionist,
   };
